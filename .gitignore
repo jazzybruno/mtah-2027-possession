@@ -62,3 +62,7 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# -- possession pipeline ------------------------------------------------------------------------
+# Parsed tracking cache, derived from the gated data.
+cache/

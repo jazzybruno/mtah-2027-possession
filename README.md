@@ -1,3 +1,27 @@
+# Our solution — possession by evidence and segmentation
+
+Our entry to More than a Hack 2027, Phase 1. This is a fork of the official challenge repository:
+the challenge documentation below is unchanged, and our code is in [`possession/`](possession/).
+
+- **Method and results:** [TECHNICAL.md](TECHNICAL.md)
+- **Regenerate the submission** (needs the gated match data, which is not in this repository):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements-possession.txt
+export MTAH_DATA_DIR=/path/to/data            # contains tactical/ and broadcast/
+.venv/bin/python -m possession.pipeline --out evaluation/results/<team_name>.csv
+.venv/bin/python evaluation/validate_submission.py evaluation/results/<team_name>.csv
+```
+
+| | public spellF1 | public macroF1 |
+|---|---|---|
+| reference baseline `smooth50` | 0.3256 | 0.6207 |
+| ours | 0.4444 | 0.8334 |
+
+Public window only: 17 possessions, so treat these as a sanity check, not a ranking.
+
+---
+
 # More than a Hack 2027 — Phase 1: Ball Possession
 
 **Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
