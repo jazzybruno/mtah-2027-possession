@@ -10,9 +10,9 @@ not classify frames independently. It turns every frame into **evidence**, then 
 match with a three-state Viterbi decoder that charges a fixed cost for every change of state:
 
 ```
-tracking ─┬─> team evidence  (who is near a slow ball)            ┐
-          ├─> dead evidence  (ball out, players slow, ball still)  ├─> Viterbi H/A/D ─> shape model ─> Viterbi ─> CSV
-Smart Tagging ─> restarts, kickoffs, goals, phase hints           ┘     (pass 1)        (self-trained)  (pass 2)
+tracking ─┬─> team evidence  (who is near a slow ball)                        ┐
+          ├─> dead evidence  (hand-set terms + learned dead-ball model)       ├─> Viterbi ─> shape model ─> Viterbi ─> run clean-up ─> CSV
+Smart Tagging ─> restarts, kickoffs, goals, phase hints, model training labels┘   (pass 1)   (self-trained)   (pass 2)
 ```
 
 A possession changes hands only when the opponent's accumulated evidence exceeds the switching
@@ -72,6 +72,20 @@ following kickoff, is forced dead. Phase tags (Build Up, Progression, Defending 
 0.08-per-frame hint towards the possessing side. The intervals are phases, not possessions, so
 the hint is deliberately weak.
 
+**Learned dead-ball model.** A logistic regression on 18 context features, added to the hand-set
+dead-ball score at a small weight (0.15). The features cover player motion at three time scales,
+ball visibility, stillness and speed, the ball outside or near a line, nearest-player distance,
+player spread and the number of tracked players. It trains only on **Smart Tagging
+pseudo-labels**:
+- **dead:** from each located restart back to where the stoppage began. The label is extended
+  backwards while play stays calm (players slow, or the ball unseen or still), up to 60 s, plus
+  pre-kickoff and goal-to-kickoff stretches;
+- **alive:** the core of open-play phases (Build Up, Progression, Creating Chances, Attacking
+  Transition), away from any restart.
+
+The public window is deliberately left out of training, so it stays an out-of-sample test. The
+logit is centred on this match, so the top ~45% of frames lean dead.
+
 **Team shape (second pass).** A logistic regression on 10 shape features. They are oriented so
 +x is home's attacking direction, read off the pre-kickoff lineup:
 - where the play is (the centroid of all players);
@@ -98,6 +112,9 @@ side.
 - **Ball not visible (41% of graded frames).** Gaps up to 0.48 s are interpolated; beyond that
   the decoder keeps the current state and the team-shape model adds evidence.
 - **Dead ball** is always `D`. We never try to say who "owns" a stopped ball.
+- **Run clean-up** after decoding. A dead run under 1 s is not a stoppage and takes the previous
+  label. A possession under 4 s with dead ball on both sides is a player holding the ball during
+  one stoppage (a throw-in or goal kick being taken), so it becomes `D`.
 
 ## 5. How choices were made without overfitting 17 possessions
 
@@ -118,6 +135,8 @@ Out-of-sample results on the public window:
 | component | metric | value |
 |---|---|---|
 | hand-set dead-ball score | frame AUC, dead vs alive | 0.877 |
+| learned dead-ball model, labels from the 2.5 s before restarts | frame AUC, dead vs alive | 0.868 |
+| learned dead-ball model, labels extended back over the stoppage (**used**) | frame AUC, dead vs alive | **0.919** |
 | team-shape model (self-trained) | frame AUC, home vs away | 0.956 |
 
 | pipeline stage | public spellF1 | public macroF1 |
@@ -126,25 +145,30 @@ Out-of-sample results on the public window:
 | v1: proximity + hand-set dead ball | 0.3875 | 0.8523 |
 | + event-based stoppages | 0.3875 | 0.8526 |
 | + team shape, second pass | 0.4000 | 0.8635 |
-| + switching cost set from the possession-length prior (**submitted**) | **0.4444** | 0.8334 |
+| + switching cost set from the possession-length prior | 0.4444 | 0.8334 |
+| + run clean-up (4 s) | 0.4444 | 0.8334 |
+| + learned dead-ball model, tags-only training (**submitted**) | **0.4800** | 0.8369 |
 
 The public window is 17 possessions, and one possession moves `spellF1` by about 6 points. These
 numbers show the pipeline is sound, not how it ranks.
 
-**Tried and dropped: a learned dead-ball model** (`possession/deadmodel.py`). It was a logistic
-regression on 18 context features, trained on pseudo-labels from Smart Tagging (the 2.5 s before
-each located restart were labelled dead, the core of open-play phases alive). Out of sample it
-ranked frames slightly worse than the hand-set score (AUC 0.868); blended with it, slightly better
-(0.896). After decoding, though, it fragmented stoppages and never improved `spellF1`. The labels
-explain why: they cover only the moment before a restart, so the model learned "about to restart"
-rather than "stoppage in progress". It remains available as `--set use_learned=1`.
+**What changed the learned model's verdict.** Its first version labelled only the 2.5 s before
+each restart as dead. It learned "about to restart" rather than "stoppage in progress", ranked
+frames no better than the hand-set score, and fragmented the decode, so it was switched off.
+Extending the dead labels back over the calm stretch before each restart moved its out-of-sample
+AUC from 0.868 to 0.919 and made it worth adding at a small weight. Larger weights (0.3, 0.5)
+lowered macroF1, so it stays a correction to the hand-set score rather than a replacement.
+
+**Choices not taken from the public window.** A 7 s clean-up threshold would have fixed a specific
+split stoppage in the public window and scored higher there. 4 s was kept because it rests on the
+football argument, not on that one example.
 
 ## 6. Limitations
 
 - **Very short possessions** (under ~2 s) are still absorbed by the switching cost. The truth
   contains some.
 - **A player holding the ball during a stoppage** (throw-in, goal kick) produces strong team
-  evidence, which can split one dead stretch into dead–alive–dead.
+  evidence. The clean-up merges splits under 4 s; longer ones remain.
 - **Exits are rarely seen.** The ball usually leaves the camera's view as it goes out, so most
   dead-ball time comes from collective slowness rather than from exit → restart pairs.
 - **Stoppages without a tag.** Smart Tagging has 59 set pieces, against roughly 100+ stoppages in
@@ -152,8 +176,8 @@ rather than "stoppage in progress". It remains available as `--set use_learned=1
 - **No player identities**, so there is no notion of a carrier's own run.
 
 With more time: a duration-aware (semi-Markov) decoder with separate minimum lengths for
-possessions and stoppages; dead-ball pseudo-labels extended back to the start of each stoppage;
-and using the broadcast feed to confirm stoppages around replays.
+possessions and stoppages; pseudo-labels for team control as well as for dead ball; and using
+the broadcast feed to confirm stoppages around replays.
 
 ## 7. Reproduction
 
@@ -166,8 +190,8 @@ export MTAH_DATA_DIR=/path/to/data                         # contains tactical/ 
 .venv/bin/python -m unittest discover tests                # synthetic tests, no data needed
 ```
 
-The pipeline is deterministic (no random state, closed-form decoding, fixed-step gradient
-descent), and two runs produce byte-identical files. It was developed on Python 3.14 with the
+The pipeline is deterministic (no random state, exact Viterbi decoding, fixed-step gradient
+descent for both learned models), and two runs produce byte-identical files. It was developed on Python 3.14 with the
 pinned versions above. The first run parses the tracking file once (about a minute) into
 `cache/`, which is gitignored; later runs take seconds. Every parameter is in
 `possession/config.py`, and any of them can be overridden with `--set name=value`.

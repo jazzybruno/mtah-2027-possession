@@ -16,7 +16,7 @@ export MTAH_DATA_DIR=/path/to/data            # contains tactical/ and broadcast
 | | public spellF1 | public macroF1 |
 |---|---|---|
 | reference baseline `smooth50` | 0.3256 | 0.6207 |
-| ours | 0.4444 | 0.8334 |
+| ours | 0.4800 | 0.8369 |
 
 Public window only: 17 possessions, so treat these as a sanity check, not a ranking.
 

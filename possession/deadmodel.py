@@ -97,8 +97,13 @@ def features(atd, ballinfo, outside, half_blocks, fps, length, width):
     return np.stack([columns[k] for k in names], axis=1), names
 
 
-def pseudo_labels(n, restarts, tags, half_blocks, kickoff_dead, fps):
-    """(labels, weights): 1 dead, 0 alive, -1 unlabelled, from Smart Tagging alone."""
+def pseudo_labels(n, restarts, tags, half_blocks, kickoff_dead, fps, calm=None, max_back_s=0):
+    """Labels per frame: 1 dead, 0 alive, -1 unlabelled, from Smart Tagging alone.
+
+    Dead labels cover the 2.5 s before each restart. With a `calm` mask and max_back_s > 0 they
+    are extended further back while play stays calm, so they cover the stoppage rather than only
+    its last moment.
+    """
     labels = np.full(n, -1, dtype=np.int8)
     guard = np.zeros(n, dtype=bool)
     for r, _ in restarts:
@@ -111,7 +116,12 @@ def pseudo_labels(n, restarts, tags, half_blocks, kickoff_dead, fps):
     labels[guard & (labels == 0)] = -1
 
     for r, _ in restarts:
-        labels[max(0, r - int(2.5 * fps)):max(0, r - fps // 5)] = 1
+        start = max(0, r - int(2.5 * fps))
+        if calm is not None and max_back_s > 0:
+            floor = max(0, r - int(max_back_s * fps))
+            while start > floor and calm[start - 1]:
+                start -= 1
+        labels[start:max(0, r - fps // 5)] = 1
     labels[kickoff_dead] = 1
 
     graded = np.zeros(n, dtype=bool)
@@ -162,7 +172,11 @@ def learned_logit(atd, ballinfo, tags, p, fps, half_blocks, length, width, gt_co
     n = len(x)
     restarts = locate_restarts(ballinfo["speed"], tags, p, fps)
     hard = hard_dead_mask(restarts, tags, half_blocks, n, fps)
-    y = pseudo_labels(n, restarts, tags, half_blocks, hard, fps).astype(np.float64)
+    col = {name: i for i, name in enumerate(names)}
+    calm = ((x[:, col["motion_rank_2s"]] < p.calm_motion_rank)
+            | (x[:, col["ball_unseen_clock"]] > 0) | (x[:, col["ball_still_1s"]] > 0.5))
+    y = pseudo_labels(n, restarts, tags, half_blocks, hard, fps, calm,
+                      p.dead_label_back_s).astype(np.float64)
     weight = (y >= 0).astype(np.float64)
     if gt_codes is not None:
         graded = gt_codes != X_CODE

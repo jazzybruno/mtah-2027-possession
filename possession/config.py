@@ -53,13 +53,15 @@ class Params:
     w_interval: float = 1.0           # per-frame dead evidence between paired events
 
     # Learned dead-ball model (possession/deadmodel.py)
-    use_learned: int = 0              # 1: add the learned logit; off, it did not beat hand-set
-    use_public_gt: int = 1            # also train on the public 5 minutes
+    use_learned: int = 1              # 1: add the learned logit to the hand-set per-frame terms
+    use_public_gt: int = 0            # 0 keeps the public window an out-of-sample check
     public_weight: float = 1.0        # per-frame training weight of public frames
     learned_l2: float = 1e-2
-    w_learned: float = 0.5            # logit scale: correlated frames, so damp it
+    w_learned: float = 0.15           # logit scale: correlated frames, so damp it
     dead_bias_learned: float = 0.0
     learned_center_q: float = 0.55    # ~45% dead, LaLiga effective-play norms
+    dead_label_back_s: float = 60.0   # extend dead labels back from a restart while play is calm
+    calm_motion_rank: float = 0.4     # player-motion rank below which play counts as calm
 
     # Team shape model (possession/shape.py), second decoding pass
     use_shape: int = 1
@@ -81,6 +83,11 @@ class Params:
     # Decoder switching costs, in the same units as the evidence
     cost_team: float = 8.0            # H <-> A; gives ~14 s mean possession, the public window mean
     cost_dead: float = 8.0            # alive <-> D
+
+    # Run clean-up after decoding (decode.clean_runs)
+    clean: int = 1
+    min_dead_run_s: float = 1.0       # shorter D runs are not stoppages
+    max_sandwich_s: float = 4.0       # shorter H/A runs between two D runs are part of the stoppage
 
 
 def with_overrides(params, overrides):

@@ -25,7 +25,7 @@ from possession import atd as atd_mod  # noqa: E402
 from possession import tagging  # noqa: E402
 from possession.config import Params, with_overrides  # noqa: E402
 from possession.deadmodel import learned_logit  # noqa: E402
-from possession.decode import decode  # noqa: E402
+from possession.decode import clean_runs, decode  # noqa: E402
 from possession.evidence import (apply_tags, dead_evidence, locate_restarts,  # noqa: E402
                                  team_evidence)
 from possession.shape import shape_logit  # noqa: E402
@@ -75,6 +75,9 @@ def predict(atd, tags, params, game=GAME, diagnostics=False):
         dead_score = dead_score + np.abs(nudge) / 2
         labels = decode(team_score, dead_score, blocks, n_frames, params.cost_team,
                         params.cost_dead)
+    if params.clean:
+        labels = clean_runs(labels, blocks, int(params.min_dead_run_s * fps),
+                            int(params.max_sandwich_s * fps))
     if diagnostics:
         return labels, {"learned": learned, "shape": shape, "ball_says_nothing": ball_says_nothing}
     return labels

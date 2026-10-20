@@ -173,6 +173,12 @@ class TestDecoder(unittest.TestCase):
         labels = decode(team, dead, [(1, 5, 14), (2, 20, 24)], 30, 10.0, 10.0)
         self.assertEqual("".join(labels), "X" * 5 + "H" * 10 + "X" * 5 + "H" * 5 + "X" * 5)
 
+    def test_clean_runs(self):
+        from possession.decode import clean_runs
+        labels = np.array(list("HHHHDHHHH" + "DDDDAADDDD" + "AAAA"))
+        out = clean_runs(labels, [(1, 0, len(labels) - 1)], min_dead=2, max_sandwich=3)
+        self.assertEqual("".join(out), "HHHHHHHHH" + "DDDDDDDDDD" + "AAAA")
+
     def test_overrides(self):
         params = with_overrides(Params(), ["cost_team=3", "still_min_frames=10"])
         self.assertEqual(params.cost_team, 3.0)

@@ -68,3 +68,32 @@ def decode(team_score, dead_score, half_blocks, n_frames, cost_team, cost_dead):
         path = viterbi(scores[first:last + 1], cost_team, cost_dead)
         labels[first:last + 1] = LABELS[path]
     return labels
+
+
+def _runs(window):
+    """[(start, stop, label)] constant runs of a label array."""
+    change = np.flatnonzero(window[1:] != window[:-1]) + 1
+    bounds = np.concatenate(([0], change, [len(window)]))
+    return [(int(a), int(b), window[a]) for a, b in zip(bounds[:-1], bounds[1:])]
+
+
+def clean_runs(labels, half_blocks, min_dead, max_sandwich):
+    """Structural clean-up the frame decoder cannot express, inside each graded half.
+
+    - A D run shorter than min_dead frames is not a stoppage: it takes the label before it.
+    - An H/A run shorter than max_sandwich frames with D on both sides is a player holding the
+      ball during one stoppage (throw-in, goal kick), not a possession: it becomes D.
+    """
+    out = labels.copy()
+    for _, first, last in half_blocks:
+        window = out[first:last + 1]
+        runs = _runs(window)
+        for i, (a, b, label) in enumerate(runs):
+            if label == "D" and b - a < min_dead and 0 < i < len(runs) - 1:
+                window[a:b] = runs[i - 1][2]
+        runs = _runs(window)
+        for i, (a, b, label) in enumerate(runs):
+            if (label in ("H", "A") and b - a < max_sandwich and 0 < i < len(runs) - 1
+                    and runs[i - 1][2] == "D" and runs[i + 1][2] == "D"):
+                window[a:b] = "D"
+    return out
