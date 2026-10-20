@@ -191,9 +191,9 @@ export MTAH_DATA_DIR=/path/to/data                         # contains tactical/ 
 ```
 
 The pipeline is deterministic (no random state, exact Viterbi decoding, fixed-step gradient
-descent for both learned models), and two runs produce byte-identical files. It was developed on Python 3.14 with the
-pinned versions above. The first run parses the tracking file once (about a minute) into
-`cache/`, which is gitignored; later runs take seconds. Every parameter is in
+descent for both learned models), and two runs produce byte-identical files. It was developed on Python 3.14; the pinned
+numpy/pandas need Python 3.11 or newer. The first run parses the tracking file once into
+`cache/` (gitignored); a full run, parse included, takes about 15 s on a laptop. Every parameter is in
 `possession/config.py`, and any of them can be overridden with `--set name=value`.
 
 Everything that touches the gated data stays on the participant's machine: `data/`, `cache/` and

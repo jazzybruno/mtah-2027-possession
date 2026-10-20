@@ -4,7 +4,8 @@ Our entry to More than a Hack 2027, Phase 1. This is a fork of the official chal
 the challenge documentation below is unchanged, and our code is in [`possession/`](possession/).
 
 - **Method and results:** [TECHNICAL.md](TECHNICAL.md)
-- **Regenerate the submission** (needs the gated match data, which is not in this repository):
+- **Regenerate the submission** (Python 3.11+; needs the gated match data, which is not in this
+  repository):
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-possession.txt
