@@ -34,7 +34,7 @@ class Params:
     v_still: float = 0.5              # ball speed below this counts as stationary
     still_min_frames: int = 38        # a stationary ball for 1.5 s suggests a set piece
     w_still: float = 0.8
-    dead_bias: float = 0.2            # puts dead time near LaLiga effective-play norms (~40%)
+    dead_bias: float = -0.3           # prior tilt towards alive; superseded by the calibration below
     unseen_min_frames: int = 75       # ball unseen for 3 s on a wide camera is usually off-pitch
     w_unseen: float = 0.3
 
@@ -53,21 +53,19 @@ class Params:
     w_interval: float = 1.0           # per-frame dead evidence between paired events
 
     # Learned dead-ball model (possession/deadmodel.py)
-    use_learned: int = 1              # 1: add the learned logit to the hand-set per-frame terms
-    use_public_gt: int = 0            # 0 keeps the public window an out-of-sample check
-    public_weight: float = 1.0        # per-frame training weight of public frames
+    use_learned: int = 0              # 1: add the learned logit to the hand-set per-frame terms
     learned_l2: float = 1e-2
-    w_learned: float = 0.15           # logit scale: correlated frames, so damp it
+    w_learned: float = 0.5            # logit scale: correlated frames, so damp it
     dead_bias_learned: float = 0.0
     learned_center_q: float = 0.55    # ~45% dead, LaLiga effective-play norms
     dead_label_back_s: float = 60.0   # extend dead labels back from a restart while play is calm
     calm_motion_rank: float = 0.4     # player-motion rank below which play counts as calm
 
     # Team shape model (possession/shape.py), second decoding pass
-    use_shape: int = 1
+    use_shape: int = 0
     shape_label_min: float = 0.5      # |proximity evidence| that makes a frame a training label
-    w_shape: float = 0.2              # per-frame weight where the ball says nothing
-    shape_on_ball: float = 0.5        # fraction of that weight where the ball is informative
+    w_shape: float = 0.1              # per-frame weight where the ball says nothing
+    shape_on_ball: float = 0.0        # fraction of that weight where the ball is informative
     shape_clip: float = 3.0
 
     # Smart Tagging
@@ -81,8 +79,15 @@ class Params:
     w_hard: float = 50.0              # pre-kickoff and goal-to-kickoff stretches
 
     # Decoder switching costs, in the same units as the evidence
-    cost_team: float = 8.0            # H <-> A; gives ~14 s mean possession, the public window mean
+    cost_team: float = 12.0           # H <-> A; about half a second of clear, slow, close control
     cost_dead: float = 8.0            # alive <-> D
+
+    # Dead-ball calibration to an external statistic: the dead-ball offset is searched so the
+    # graded frames carry this much ball-in-play time. 55:58 is the average effective playing
+    # time of Barcelona's 2024-25 LaLiga matches (LaLiga figures as reported by El Diario Alerta,
+    # 2025-05-27). 0 disables the search and uses dead_bias as is.
+    effective_play_min: float = 55.97
+    calibration_steps: int = 16
 
     # Run clean-up after decoding (decode.clean_runs)
     clean: int = 1

@@ -10,9 +10,9 @@ not classify frames independently. It turns every frame into **evidence**, then 
 match with a three-state Viterbi decoder that charges a fixed cost for every change of state:
 
 ```
-tracking ─┬─> team evidence  (who is near a slow ball)                        ┐
-          ├─> dead evidence  (hand-set terms + learned dead-ball model)       ├─> Viterbi ─> shape model ─> Viterbi ─> run clean-up ─> CSV
-Smart Tagging ─> restarts, kickoffs, goals, phase hints, model training labels┘   (pass 1)   (self-trained)   (pass 2)
+tracking ─┬─> team evidence  (who is near a slow ball)            ┐
+          ├─> dead evidence  (ball out, players slow, ball still)  ├─> dead-ball calibration ─> Viterbi H/A/D ─> run clean-up ─> CSV
+Smart Tagging ─> restarts, kickoffs, goals, phase hints           ┘   (external league statistic)
 ```
 
 A possession changes hands only when the opponent's accumulated evidence exceeds the switching
@@ -31,7 +31,7 @@ minutes.
 |---|---|---|
 | tactical ATD (players + ball) | all evidence | **used** |
 | Smart Tagging | set-piece restarts, kickoffs, goals; small team hint from phases; attack direction | **used** |
-| public 5-minute ground truth | pipeline checks, out-of-sample tests | used for checking only; not trained on |
+| public 5-minute ground truth | checking the file is well formed and the pipeline runs end to end | nothing is trained, fitted, tuned or calibrated on it |
 | tactical homography | — | dropped: the ATD is already in pitch coordinates |
 | broadcast video / ATD / homography | — | dropped: not frame-aligned to tactical, and a third of it has no usable homography |
 | tactical video | — | dropped: no detection model needed on top of the provided tracking |
@@ -72,32 +72,20 @@ following kickoff, is forced dead. Phase tags (Build Up, Progression, Defending 
 0.08-per-frame hint towards the possessing side. The intervals are phases, not possessions, so
 the hint is deliberately weak.
 
-**Learned dead-ball model.** A logistic regression on 18 context features, added to the hand-set
-dead-ball score at a small weight (0.15). The features cover player motion at three time scales,
-ball visibility, stillness and speed, the ball outside or near a line, nearest-player distance,
-player spread and the number of tracked players. It trains only on **Smart Tagging
-pseudo-labels**:
-- **dead:** from each located restart back to where the stoppage began. The label is extended
-  backwards while play stays calm (players slow, or the ball unseen or still), up to 60 s, plus
-  pre-kickoff and goal-to-kickoff stretches;
-- **alive:** the core of open-play phases (Build Up, Progression, Creating Chances, Attacking
-  Transition), away from any restart.
+**Dead-ball calibration.** One offset is added to the dead-ball score of every frame, searched
+by bisection so that the decoded graded frames contain 55 min 58 s of ball-in-play time. That is
+the average effective playing time of Barcelona's 2024-25 LaLiga matches (LaLiga figures, as
+reported by El Diario Alerta on 2025-05-27). For this match that means 47.2% of graded frames
+dead. The target is an external statistic, not a property of the ground truth.
 
-The public window is deliberately left out of training, so it stays an out-of-sample test. The
-logit is centred on this match, so the top ~45% of frames lean dead.
+**Optional components, off in the submission.** Two small models remain in the code, switched
+off with `use_learned=0` and `use_shape=0`:
+- a learned dead-ball model (`possession/deadmodel.py`), trained on Smart Tagging pseudo-labels;
+- a team-shape model (`possession/shape.py`), self-trained on the first-pass decode.
 
-**Team shape (second pass).** A logistic regression on 10 shape features. They are oriented so
-+x is home's attacking direction, read off the pre-kickoff lineup:
-- where the play is (the centroid of all players);
-- each team's front and back lines and the gap between the teams;
-- the difference in width and length between the teams;
-- where the ball was last seen.
-
-It is **self-trained**: the labels are our own first-pass decode on about 33k frames where the
-ball is visible and the proximity evidence is clear. Its output feeds a second decode, at full
-weight where the ball is silent and half weight elsewhere. Any team evidence also lifts "alive"
-over "dead" in the decoder; that lift is cancelled for the shape term, so shape only picks the
-side.
+Neither uses the ground truth or the video. They are off because whether to use them, and at
+what weight, could only be judged against the public ground truth, which the rules forbid (see
+section 5).
 
 ## 4. Possession rules implemented
 
@@ -106,62 +94,40 @@ side.
 - **Loose and contested balls.** When both teams are near the ball, the evidence nets to roughly
   zero, so the previous team keeps possession, as the rules require.
 - **Change of possession.** The new team must out-evidence the old one by the switching cost
-  (8 units, roughly a third of a second of clear, slow, close control).
+  (12 units, about half a second of clear, slow, close control).
 - **Interceptions vs deflections.** A fast ball near an opponent carries 15% weight, so a
   deflection does not pay the cost; a ball that slows down at an opponent's feet does.
 - **Ball not visible (41% of graded frames).** Gaps up to 0.48 s are interpolated; beyond that
-  the decoder keeps the current state and the team-shape model adds evidence.
+  the decoder keeps the current state until new evidence arrives.
 - **Dead ball** is always `D`. We never try to say who "owns" a stopped ball.
 - **Run clean-up** after decoding. A dead run under 1 s is not a stoppage and takes the previous
   label. A possession under 4 s with dead ball on both sides is a player holding the ball during
   one stoppage (a throw-in or goal kick being taken), so it becomes `D`.
 
-## 5. How choices were made without overfitting 17 possessions
+## 5. Compliance: where every parameter comes from
 
-The public window was used to catch bugs and as an out-of-sample test, never as the objective.
-Parameters come from football priors, with three checks that do not touch the private ground
-truth:
+The organisers' rules clarification forbids training, fitting or calibrating on the ground-truth
+possession data or on the video, and requires any tuning to use external data. The submitted
+configuration follows it:
 
-1. **Dead-ball share.** LaLiga effective playing time is about 52–55 of the 106 graded minutes, so
-   about 40–50% of graded frames should be dead. We predict 46%.
-2. **Possession count.** The public window averages 14.2 s per possession. Over ~3,400 s of live
-   play that implies about 240 possessions. The switching cost was set to give 239 (mean 14.3 s).
-3. **Smart Tagging agreement** (`--check`). With tags switched off, it measures how many set
-   pieces fall on a predicted stoppage. Tags are independent of the tracking signals, so this is a
-   check that needs no ground truth.
+| parameter group | source |
+|---|---|
+| distances, speeds, durations (control radius, pass speed, stationary-ball time, …) | football and tracking physics, set before any scoring |
+| switching costs (12 team, 8 dead) | about half a second of clear control; set before any scoring |
+| dead-ball level | calibrated to an external statistic (effective playing time, section 3) |
+| per-half adaptive thresholds (player-speed quantile) | computed automatically from this match's tracking; no labels involved |
+| run clean-up (1 s, 4 s) | football reasoning: no stoppage is shorter than 1 s; a possession of under 4 s between two stoppages is a restart being taken |
 
-Out-of-sample results on the public window:
+**What was reverted.** Earlier versions of this repository, written before the clarification,
+used the public 5-minute ground truth to choose some settings: the switching cost was set to
+match the public window's mean possession length, and the two optional models above were enabled
+at weights picked from public-window scores. After the clarification those choices were reverted
+to their original, reasoning-based values, and the code path that could train on the public
+window was deleted. No hand labels were ever created.
 
-| component | metric | value |
-|---|---|---|
-| hand-set dead-ball score | frame AUC, dead vs alive | 0.877 |
-| learned dead-ball model, labels from the 2.5 s before restarts | frame AUC, dead vs alive | 0.868 |
-| learned dead-ball model, labels extended back over the stoppage (**used**) | frame AUC, dead vs alive | **0.919** |
-| team-shape model (self-trained) | frame AUC, home vs away | 0.956 |
-
-| pipeline stage | public spellF1 | public macroF1 |
-|---|---|---|
-| reference baseline (`smooth50`) | 0.3256 | 0.6207 |
-| v1: proximity + hand-set dead ball | 0.3875 | 0.8523 |
-| + event-based stoppages | 0.3875 | 0.8526 |
-| + team shape, second pass | 0.4000 | 0.8635 |
-| + switching cost set from the possession-length prior | 0.4444 | 0.8334 |
-| + run clean-up (4 s) | 0.4444 | 0.8334 |
-| + learned dead-ball model, tags-only training (**submitted**) | **0.4800** | 0.8369 |
-
-The public window is 17 possessions, and one possession moves `spellF1` by about 6 points. These
-numbers show the pipeline is sound, not how it ranks.
-
-**What changed the learned model's verdict.** Its first version labelled only the 2.5 s before
-each restart as dead. It learned "about to restart" rather than "stoppage in progress", ranked
-frames no better than the hand-set score, and fragmented the decode, so it was switched off.
-Extending the dead labels back over the calm stretch before each restart moved its out-of-sample
-AUC from 0.868 to 0.919 and made it worth adding at a small weight. Larger weights (0.3, 0.5)
-lowered macroF1, so it stays a correction to the hand-set score rather than a replacement.
-
-**Choices not taken from the public window.** A 7 s clean-up threshold would have fixed a specific
-split stoppage in the public window and scored higher there. 4 s was kept because it rests on the
-football argument, not on that one example.
+**What the public window is still used for.** Only to confirm the file is well formed and the
+pipeline runs: public spellF1 0.3875, macroF1 0.8533, against 0.3256 / 0.6207 for the reference
+baseline. Nothing is chosen from these numbers.
 
 ## 6. Limitations
 
@@ -175,9 +141,10 @@ football argument, not on that one example.
   a match.
 - **No player identities**, so there is no notion of a carrier's own run.
 
-With more time: a duration-aware (semi-Markov) decoder with separate minimum lengths for
-possessions and stoppages; pseudo-labels for team control as well as for dead ball; and using
-the broadcast feed to confirm stoppages around replays.
+With more time: tuning the switching costs and the optional models on external tracking data with
+possession labels (subject to the organisers' confirmation of a dataset's licence); a
+duration-aware (semi-Markov) decoder; and using the broadcast feed to confirm stoppages around
+replays.
 
 ## 7. Reproduction
 
@@ -190,9 +157,9 @@ export MTAH_DATA_DIR=/path/to/data                         # contains tactical/ 
 .venv/bin/python -m unittest discover tests                # synthetic tests, no data needed
 ```
 
-The pipeline is deterministic (no random state, exact Viterbi decoding, fixed-step gradient
-descent for both learned models), and two runs produce byte-identical files. It was developed on Python 3.14; the pinned
-numpy/pandas need Python 3.11 or newer. The first run parses the tracking file once into
+The pipeline is deterministic (no random state, exact Viterbi decoding, a fixed-step bisection
+for the calibration), and two runs produce byte-identical files. It was developed on Python
+3.14; the pinned numpy/pandas need Python 3.11 or newer. The first run parses the tracking file once into
 `cache/` (gitignored); a full run, parse included, takes about 15 s on a laptop. Every parameter is in
 `possession/config.py`, and any of them can be overridden with `--set name=value`.
 

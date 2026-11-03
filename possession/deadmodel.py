@@ -1,9 +1,8 @@
 """A learned dead-ball detector: logistic regression on per-frame context features.
 
-Training labels come from two sources, never from the private ground truth:
-  - Smart Tagging pseudo-labels: the seconds before a located set-piece restart, pre-kickoff and
-    goal-to-kickoff stretches are dead; the core of in-possession phases is alive.
-  - optionally the public 5-minute ground truth.
+Training labels are Smart Tagging pseudo-labels only, never ground truth: the stretch before a
+located set-piece restart, pre-kickoff and goal-to-kickoff stretches are dead; the core of
+in-possession phases is alive.
 Plain numpy gradient descent with no randomness, so the same inputs give the same file.
 """
 
@@ -16,10 +15,6 @@ from possession.evidence import (hard_dead_mask, locate_restarts, moving_nanmean
                                  outside_masks, player_motion)
 
 log = logging.getLogger(__name__)
-
-DEAD_CODE = 2   # possession_metrics: H 0, A 1, D 2, X 3
-X_CODE = 3
-
 
 def _window_mean(mask_or_values, k):
     return np.nan_to_num(moving_nanmean(np.asarray(mask_or_values, dtype=np.float64), k))
@@ -164,9 +159,8 @@ def auc(scores, y):
     return float((ranks[y == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def learned_logit(atd, ballinfo, tags, p, fps, half_blocks, length, width, gt_codes=None):
-    """Per-frame dead-ball logit from a model fitted on Smart Tagging pseudo-labels, plus the
-    public ground truth when gt_codes is given."""
+def learned_logit(atd, ballinfo, tags, p, fps, half_blocks, length, width):
+    """Per-frame dead-ball logit from a model fitted on Smart Tagging pseudo-labels."""
     _, _, outside = outside_masks(ballinfo, p, fps, length, width)
     x, names = features(atd, ballinfo, outside, half_blocks, fps, length, width)
     n = len(x)
@@ -178,10 +172,6 @@ def learned_logit(atd, ballinfo, tags, p, fps, half_blocks, length, width, gt_co
     y = pseudo_labels(n, restarts, tags, half_blocks, hard, fps, calm,
                       p.dead_label_back_s).astype(np.float64)
     weight = (y >= 0).astype(np.float64)
-    if gt_codes is not None:
-        graded = gt_codes != X_CODE
-        y[graded] = (gt_codes[graded] == DEAD_CODE)
-        weight[graded] = p.public_weight
 
     keep = weight > 0
     model = fit(x[keep], y[keep], weight[keep], l2=p.learned_l2)

@@ -52,12 +52,14 @@ def predict(atd, tags, params, game=GAME, diagnostics=False):
     proximity = team_score.copy()
     learned = shape = None
     if params.use_learned and tags is not None:
-        gt = public_gt_codes() if params.use_public_gt else None
-        learned = learned_logit(atd, ballinfo, tags, params, fps, blocks, length, width, gt)
+        learned = learned_logit(atd, ballinfo, tags, params, fps, blocks, length, width)
     dead_score = dead_evidence(atd, ballinfo, params, fps, blocks, length, width, learned)
     if tags is not None:
         apply_tags(team_score, dead_score, ballinfo["speed"], tags, params, fps, blocks)
     n_frames = source_frames("tactical", game)
+    if params.effective_play_min > 0:
+        dead_score = dead_score + calibrated_offset(team_score, dead_score, params, blocks,
+                                                    n_frames, fps)
     labels = decode(team_score, dead_score, blocks, n_frames, params.cost_team, params.cost_dead)
 
     if params.use_shape:
@@ -81,6 +83,37 @@ def predict(atd, tags, params, game=GAME, diagnostics=False):
     if diagnostics:
         return labels, {"learned": learned, "shape": shape, "ball_says_nothing": ball_says_nothing}
     return labels
+
+
+def graded_frames(blocks):
+    return np.concatenate([np.arange(first, last + 1) for _, first, last in blocks])
+
+
+def calibrated_offset(team_score, dead_score, params, blocks, n_frames, fps):
+    """Offset for dead_score so the decoded graded frames hold params.effective_play_min of
+    ball-in-play time. Bisection: the dead share falls monotonically as the offset drops.
+
+    The target is an external league statistic, never a ground-truth quantity.
+    """
+    graded = graded_frames(blocks)
+    target = 1.0 - params.effective_play_min * 60 * fps / len(graded)
+    low, high = -4.0, 4.0
+    share = None
+    for _ in range(params.calibration_steps):
+        mid = (low + high) / 2
+        labels = decode(team_score, dead_score + mid, blocks, n_frames, params.cost_team,
+                        params.cost_dead)
+        if params.clean:
+            labels = clean_runs(labels, blocks, int(params.min_dead_run_s * fps),
+                                int(params.max_sandwich_s * fps))
+        share = float(np.mean(labels[graded] == "D"))
+        if share < target:
+            low = mid
+        else:
+            high = mid
+    log.info("dead-ball calibration: target %.3f dead, reached %.3f with offset %+.3f",
+             target, share, (low + high) / 2)
+    return (low + high) / 2
 
 
 def write_submission(path, labels):
