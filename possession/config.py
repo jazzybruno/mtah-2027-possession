@@ -1,7 +1,10 @@
 """Every tunable number in the pipeline, in one place.
 
-Defaults are set from football priors and tracking-noise reasoning, not fitted to the public
-5 minutes: 17 possessions cannot choose between two parameter sets (see EVALUATION.md).
+Nothing here is fitted to the challenge ground truth or video. The team-evidence group, the team
+shape weights and cost_team were tuned on the Metrica open sample games (possession/external.py).
+The dead-ball group keeps its reasoning-based values: the sample tracking loses the ball on almost
+every dead frame, far more than the challenge tracking does, so dead-ball weights tuned there do
+not transfer (TECHNICAL.md, section 5).
 """
 
 from dataclasses import dataclass, fields, replace
@@ -15,12 +18,12 @@ class Params:
     speed_half_window: int = 2        # frames each side for the ball velocity estimate
 
     # Team evidence from ball proximity (metres, m/s)
-    r_control: float = 1.5            # a player this close to the ball can be controlling it
-    r_info: float = 4.0               # beyond this nobody is near enough to say anything
-    contrast_scale: float = 2.0       # metres of nearest-distance gap that count as decisive
+    r_control: float = 0.75           # a player this close to the ball can be controlling it
+    r_info: float = 2.5               # beyond this nobody is near enough to say anything
+    contrast_scale: float = 0.5       # metres of nearest-distance gap that count as decisive
     v_slow: float = 4.0               # below this the ball can be controlled
-    v_fast: float = 12.0              # above this the ball is in flight (pass, shot, clearance)
-    fast_floor: float = 0.15          # evidence kept for a fast ball passing close to a player
+    v_fast: float = 18.0              # above this the ball is in flight (pass, shot, clearance)
+    fast_floor: float = 0.0           # evidence kept for a fast ball (or unknown speed) near a player
     w_team: float = 1.0               # per-frame weight of a clear, slow, close touch
 
     # Dead-ball evidence (log-odds dead vs alive, per frame)
@@ -62,10 +65,10 @@ class Params:
     calm_motion_rank: float = 0.4     # player-motion rank below which play counts as calm
 
     # Team shape model (possession/shape.py), second decoding pass
-    use_shape: int = 0
+    use_shape: int = 1
     shape_label_min: float = 0.5      # |proximity evidence| that makes a frame a training label
     w_shape: float = 0.1              # per-frame weight where the ball says nothing
-    shape_on_ball: float = 0.0        # fraction of that weight where the ball is informative
+    shape_on_ball: float = 1.0        # fraction of that weight where the ball is informative
     shape_clip: float = 3.0
 
     # Smart Tagging

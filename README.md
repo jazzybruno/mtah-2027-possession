@@ -17,7 +17,7 @@ export MTAH_DATA_DIR=/path/to/data            # contains tactical/ and broadcast
 | | public spellF1 | public macroF1 |
 |---|---|---|
 | reference baseline `smooth50` | 0.3256 | 0.6207 |
-| ours | 0.3875 | 0.8533 |
+| ours | 0.4276 | 0.8670 |
 
 Public window only, as a sanity check: nothing in the pipeline is trained, tuned or calibrated on
 the ground truth (see TECHNICAL.md, section 5).

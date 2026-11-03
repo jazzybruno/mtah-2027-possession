@@ -127,8 +127,10 @@ class TestEvidence(unittest.TestCase):
             "ball_xy": np.array([[10.5, 10.0]] * n, dtype=np.float32),
             "speed": np.zeros((n, 2), dtype=np.float32),
         }
-        score, _ = team_evidence(data, Params(), fps=25)
-        self.assertTrue((score > 0).all())
+        score, info = team_evidence(data, Params(), fps=25)
+        known = np.isfinite(info["speed"])  # unknown speed is weighted like a fast ball
+        self.assertTrue(known.any())
+        self.assertTrue((score[known] > 0).all())
 
 
 class TestDeadModel(unittest.TestCase):
@@ -151,6 +153,43 @@ class TestShape(unittest.TestCase):
         team = np.array([0, 0, 1, 1], dtype=np.int8)
         dirs = home_attack_direction(pos, team, [100], [(1, 60, 199)], fps=25)
         self.assertEqual(dirs, {1: 1})
+
+
+class TestExternal(unittest.TestCase):
+    def test_labels_from_events(self):
+        from possession.external import labels_from_events, HOME, AWAY
+        events = [
+            {"team": HOME, "type": "SET PIECE", "subtype": "KICK OFF", "period": 1, "start": 0, "end": 0},
+            {"team": HOME, "type": "PASS", "subtype": "", "period": 1, "start": 0, "end": 3},
+            {"team": AWAY, "type": "RECOVERY", "subtype": "INTERCEPTION", "period": 1, "start": 5, "end": 5},
+            {"team": AWAY, "type": "BALL OUT", "subtype": "", "period": 1, "start": 7, "end": 8},
+            {"team": HOME, "type": "SET PIECE", "subtype": "THROW IN", "period": 1, "start": 11, "end": 12},
+        ]
+        labels, blocks = labels_from_events(events, 15, min_events=1, min_s=0.0)
+        self.assertEqual("".join(labels), "HHHHHAAADDDHHXX")
+        self.assertEqual(blocks, [(1, 0, 12)])
+        # A lone interception is a touch, not control: possession stays home until the ball-out.
+        labels, _ = labels_from_events(events, 15)
+        self.assertEqual("".join(labels), "HHHHHHHHDDDHHXX")
+
+    def test_controlled_run_changes_possession(self):
+        from possession.external import labels_from_events, HOME, AWAY
+        ev = lambda team, kind, start: {"team": team, "type": kind, "subtype": "", "period": 1,
+                                        "start": start, "end": start}
+        events = [ev(HOME, "SET PIECE", 0), ev(HOME, "PASS", 2), ev(AWAY, "RECOVERY", 10),
+                  ev(AWAY, "PASS", 12), ev(AWAY, "PASS", 14), ev(HOME, "PASS", 20)]
+        labels, _ = labels_from_events(events, 21, min_events=3, min_s=100.0)
+        self.assertEqual("".join(labels), "H" * 10 + "A" * 11)
+
+    def test_degrade_is_deterministic_and_live_only(self):
+        from possession.external import degrade
+        pos = np.random.default_rng(0).random((5000, 4, 2))
+        ball = np.random.default_rng(1).random((5000, 2))
+        labels = np.array(["H"] * 2500 + ["D"] * 2500)
+        _, b1 = degrade(pos, ball, labels, 11)
+        _, b2 = degrade(pos, ball, labels, 11)
+        self.assertTrue(np.array_equal(np.isnan(b1), np.isnan(b2)))
+        self.assertFalse(np.isnan(b1[2500:]).any())
 
 
 class TestDecoder(unittest.TestCase):

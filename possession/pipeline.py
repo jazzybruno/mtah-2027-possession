@@ -40,12 +40,18 @@ def public_gt_codes():
     return pm.label_codes(pm.read_label_csv(PUBLIC_GT))
 
 
-def predict(atd, tags, params, game=GAME, diagnostics=False):
+def match_context(game=GAME):
+    """What predict needs to know about a match: graded halves, length, frame rate, pitch."""
+    return {"blocks": half_video_blocks(game), "n_frames": source_frames("tactical", game),
+            "fps": GAMES[game]["fps"], "pitch": GAMES[game]["pitch"]}
+
+
+def predict(atd, tags, params, context=None, diagnostics=False):
     """Full-length H/A/D/X label array for one parameter set; with diagnostics, also a dict of
-    the intermediate per-frame scores."""
-    fps = GAMES[game]["fps"]
-    length, width = GAMES[game]["pitch"]
-    blocks = half_video_blocks(game)
+    the intermediate per-frame scores. context defaults to the challenge match."""
+    context = context or match_context()
+    fps, blocks = context["fps"], context["blocks"]
+    length, width = context["pitch"]
 
     team_score, ballinfo = team_evidence(atd, params, fps)
     ball_says_nothing = team_score == 0
@@ -56,7 +62,7 @@ def predict(atd, tags, params, game=GAME, diagnostics=False):
     dead_score = dead_evidence(atd, ballinfo, params, fps, blocks, length, width, learned)
     if tags is not None:
         apply_tags(team_score, dead_score, ballinfo["speed"], tags, params, fps, blocks)
-    n_frames = source_frames("tactical", game)
+    n_frames = context["n_frames"]
     if params.effective_play_min > 0:
         dead_score = dead_score + calibrated_offset(team_score, dead_score, params, blocks,
                                                     n_frames, fps)
