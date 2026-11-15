@@ -1,5 +1,7 @@
 # Frame-level ball possession — technical document
 
+**Team VisionChampions** · code: https://github.com/jazzybruno/mtah-2027-possession
+
 More than a Hack 2027, Phase 1. One label per frame of the tactical video: `H`, `A`, `D` (`X`
 outside the graded halves).
 
@@ -96,8 +98,8 @@ pseudo-labels, remains in the code with `use_learned=0`: it was not part of the 
   zero, so the previous team keeps possession, as the rules require.
 - **Change of possession.** The new team must out-evidence the old one by the switching cost
   (12 units, about half a second of clear, slow, close control).
-- **Interceptions vs deflections.** A fast ball near an opponent carries 15% weight, so a
-  deflection does not pay the cost; a ball that slows down at an opponent's feet does.
+- **Interceptions vs deflections.** A ball passing an opponent at 18 m/s or more carries no team
+  weight, so a deflection does not pay the cost; a ball that slows down at an opponent's feet does.
 - **Ball not visible (41% of graded frames).** Gaps up to 0.48 s are interpolated; beyond that
   the decoder keeps the current state until new evidence arrives.
 - **Dead ball** is always `D`. We never try to say who "owns" a stopped ball.
